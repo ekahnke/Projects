@@ -1,0 +1,292 @@
+---
+title: "Salty Snack Project"
+author: 'E. Kahnke'
+date: "December 5, 2015"
+output: word_document
+---
+##Prepare a one-year-ahead demand forecast for the Salty Snacks category of COKESICO INC - Houston
+
+
+##Loading the required libraries
+```{r}
+library(fpp)
+library(forecast)
+```
+
+
+##Reading in the dataset and transforming relevant time period data into its components (Weeks, months, year)
+##Additionally, created indicator variables for month and year
+```{r}
+
+cs_houston <- read.csv("Salty_Snacks_CokeSico_Houston_Years_1-5.csv")
+colnames(cs_houston)[1] <- "WEEKS"
+
+cs_h <- subset(cs_houston, select = c("WEEKS","start.date","Grand_Total"))
+
+cs_h$start.date <- as.Date(as.character(cs_h$start.date), format = "%d-%b-%y")
+
+colnames(cs_h) <- c("weeks","start.date","total")
+#write.csv(cs_h,"cs_h.csv")
+sapply(cs_h,class)
+
+cs_h$month <- format(cs_h$start.date, "%m")
+cs_h$year <- format(cs_h$start.date, "%Y")
+cs_h$posixdate <- as.POSIXlt(cs_h$start.date)
+cs_h$week.num <- strftime(cs_h$posixdate,format="%W")
+cs_h$year.flag <- ifelse(as.numeric(cs_h$year) >= 2003,1,0)
+cs_h$cumu.flag <- ifelse(as.numeric(cs_h$month) >= 01 & as.numeric(cs_h$month) <= 05 & as.numeric(cs_h$year) >= 2003,1,0)
+```
+
+Converting demand to TS and determining the trends
+
+##Transform the dataset into time series
+
+```{r}
+h.ts <- ts(cs_h$total, start = c(2001,1), frequency = 52)
+plot(h.ts, main = "Time series data for Houston", xlab = "Year", ylab = "Sales")
+```
+
+##Basic forecast:
+
+### We tried to forecast the time series data using the auto arima function and using external regressors such as year after 2003 and first 5 months after 2003 when the plots change
+
+```{r}
+bc.h <- BoxCox.lambda(h.ts)
+x_reg = cbind(cs_h$cumu.flag,cs_h$year.flag)
+cs.h.model <- auto.arima(h.ts, seasonal = TRUE, lambda = bc.h, xreg = x_reg)
+summary(cs.h.model)
+
+x.FD.0 <- cbind(c(c(rep(1,22)),c(rep(0,30))),c(rep(1,52)))
+cs.h.forecast <- forecast(cs.h.model, h = 52, xreg = x.FD.0)
+plot(cs.h.forecast)
+```
+### As we can se above, the forecast is not very good. Since the original time series data is highly cyclical and seasonal, The auto.arima function is not able to sucessfully capture these components. 
+
+### An alternative strategy is to use the STL function that decomposes a time series into seasonal, trend, and irregular components using "loess". This is explored below:
+
+```{r}
+auto.stlf <- stlm(h.ts, method = c("arima"))
+summary(auto.stlf)
+plot(forecast(auto.stlf), xlab="Year", ylab="Sales")
+```
+
+### As we can see from the above chart the seasonality appears to be captured in a much better manner. Hence, we expect the forecast to be more accurate. 
+
+#------------------------------------------------------------------------------------#
+
+##Prepare a one-year-ahead demand forecast for the Salty Snacks category of COKESICO INC - Minneapolis
+
+###Reading in the dataset and transforming relevant time period data into its components (Weeks, months, year)
+###Additionally, created indicator variables for month and year
+```{r}
+cs_minn <- read.csv("Salty_Snacks_CokeSico_Minneapolis_Years_1-5.csv")
+
+cs_m <- subset(cs_minn, select = c("WEEKS","start.date","Grand.Total"))
+cs_m$start.date <- as.Date(as.character(cs_m$start.date), format = "%d-%b-%y")
+
+colnames(cs_m) <- c("weeks","start.date","total")
+
+cs_m$month <- format(cs_m$start.date, "%m")
+cs_m$year <- format(cs_m$start.date, "%Y")
+cs_m$posixdate <- as.POSIXlt(cs_m$start.date)
+cs_m$week.num <- strftime(cs_m$posixdate,format="%W")
+cs_m$cumu.flag <- ifelse(as.numeric(cs_m$week.num) >= 01 & as.numeric(cs_m$week.num) <= 26,1,0)
+```
+
+Converting demand to TS and determining the trends
+
+##Transform the dataset into time series
+
+```{r}
+m.ts <- ts(cs_m$total, start = c(2001,1), frequency = 52)
+plot(m.ts, main = "Time series data for Minneapolis", xlab = "Year", ylab = "Sales")
+```
+
+### After analyzing the data, we decided to use dummies created for month and week as external regressors. 
+
+Forecast with regressors:
+
+```{r}
+bc.m <- BoxCox.lambda(m.ts)
+cs.m.model <- auto.arima(m.ts, seasonal = TRUE, lambda = bc.m, xreg = cs_m$cumu.flag)
+summary(cs.m.model)
+
+x.FD <- c(c(rep(1,26)),c(rep(0,26)))
+
+cs.m.forecast <- forecast(cs.m.model, h = 52, xreg = x.FD)
+plot(cs.m.forecast, xlab="year", ylab="sales")
+```
+
+#------------------------------------------------------------------------------------#
+
+#Twelve week ahead demand forecast for Classic Fried Flat Potato Chips
+
+###Reading in the dataset with transformations around D and PR as percentages of unit sales. This was done to indicate the percentage of unit sales that could be attributed to price cuts and big and small banner ads at stores
+
+### First, we started by looking at the data for both item numbers (2843 and 4361) seperately. It seemed like product 2843 was later replaced by product 4361. Hence, we combined the two products as per their timelines and then forecasted the sales. 
+
+###Additionally, created indicator variables for beer and advertisement
+
+```{r}
+library(fpp)
+library(forecast)
+
+hou <- read.csv("Chips_Hou_V2.csv")
+minn <- read.csv("Chips_Minn_V2.csv")
+
+hou$start.date <- as.Date(as.character(hou$start.date), format = "%d-%b-%y")
+hou$start.date <- as.POSIXlt(hou$start.date)
+hou$week.num <- strftime(hou$start.date,format="%W")
+
+minn$start.date <- as.Date(as.character(minn$start.date), format = "%d-%b-%y")
+minn$start.date <- as.POSIXlt(minn$start.date)
+minn$week.num <- strftime(minn$start.date,format="%W")
+```
+
+### We tried different permutations of the data that was provided to us. We forecasted the data for Houston and Minneapolis using the following regressors: units sold that can be attributed to either PR or D1 or D2 where D2 is a big banner Ad, D1 is a small Ad banner and PR is a flag indicating whether there was a discount or not.
+
+### Since we do not have the percentages for our forecast period, we forecasted these values and used them as regressors
+
+### We forecasted the data for Houston and Minneapolis using the same regressors as above, but we also added the beer and advertisment data as regressors. With these 5 regressors, our models perform slightly better than when we used 3 regressors. 
+
+##Houston 
+
+```{r}
+#Converting data into TS
+h.ts <- ts(hou$dollars.total, start = c(2004,52) ,frequency = 52)
+plot(h.ts, main= " Time Series for Houston", ylab = "Units of Potato Chips sold in Thousands", xlab = "Year")
+
+h.l <- BoxCox.lambda(h.ts)
+
+#Forecasting xreg for model forecasts
+h.perPR <- auto.arima(ts(hou$Per_PR_Units), seasonal = TRUE)
+h.PR.forecast <- forecast(h.perPR, h = 12)
+
+h.perD2 <- auto.arima(ts(hou$Per_D2_Sales), seasonal = TRUE)
+h.D2.forecast <- forecast(h.perD2, h = 12)
+
+h.perD1 <- auto.arima(ts(hou$Per_D1_Sales), seasonal = TRUE)
+h.D1.forecast <- forecast(h.perD1, h = 12)
+
+h.Beer <- auto.arima(ts(hou$Beer_Sales), seasonal = TRUE)
+h.Beer.forecast <- forecast(h.Beer, h = 12)
+
+h.SSAdDollars <- auto.arima(ts(hou$SS_Ad_Dollars), seasonal = TRUE)
+h.SSAdDollars.forecast <- forecast(h.SSAdDollars, h = 12)
+
+#Model
+h_xreg <- cbind(hou$Per_PR_Units,hou$Per_D2_Sales,hou$Per_D1_Sales,hou$Beer_Sales,hou$SS_Ad_Dollars)
+h.model <- auto.arima(h.ts, seasonal = TRUE, xreg = h_xreg)
+summary(h.model)
+
+#Forecast
+h_xreg_F <- cbind(h.PR.forecast$mean,h.D2.forecast$mean,h.D1.forecast$mean,h.Beer.forecast$mean,h.SSAdDollars.forecast$mean)
+h.forecast <- forecast(h.model, h = 12, xreg = h_xreg_F)
+plot(h.forecast, xlab = "Year", ylab = "Demand",main = "Forecasts with Beer and Ad data - Houston")
+```
+
+Forecasts without Beer and Ad data
+
+```{r}
+#Without Beer and Ad data
+hou_wo <- read.csv("Chips_hou.csv")
+hou$start.date <- as.Date(as.character(hou$start.date), format = "%d-%b-%y")
+hou$start.date <- as.POSIXlt(hou$start.date)
+hou$week.num <- strftime(hou$start.date,format="%W")
+
+#Converting data into TS
+h.ts <- ts(hou_wo$dollars.total, start = c(2004,52) ,frequency = 52)
+
+h.l <- BoxCox.lambda(h.ts)
+
+#Forecasting xreg for model forecasts
+h.perPR <- auto.arima(ts(hou_wo$Per_PR_Units), seasonal = TRUE)
+h.PR.forecast <- forecast(h.perPR, h = 12)
+
+h.perD2 <- auto.arima(ts(hou_wo$Per_D2_Sales), seasonal = TRUE)
+h.D2.forecast <- forecast(h.perD2, h = 12)
+
+h.perD1 <- auto.arima(ts(hou_wo$Per_D1_Sales), seasonal = TRUE)
+h.D1.forecast <- forecast(h.perD1, h = 12)
+
+#Model
+h_xreg <- cbind(hou_wo$Per_PR_Units,hou_wo$Per_D2_Sales,hou_wo$Per_D1_Sales)
+h.model <- auto.arima(h.ts, seasonal = TRUE, xreg = h_xreg)
+summary(h.model)
+
+#Forecast
+h_xreg_F <- cbind(h.PR.forecast$mean,h.D2.forecast$mean,h.D1.forecast$mean)
+h.forecast <- forecast(h.model, h = 12, xreg = h_xreg_F)
+plot(h.forecast,main = "Forecasts without Beer and Ad data - Houston")
+
+```
+
+##Minneapolis
+
+### We used the same forecasting approach for Minneapolis as we used for Houston.
+```{r}
+#Converting data into TS
+m.ts <- ts(minn$dollars.total, start = c(2004,52) ,frequency = 52)
+plot(m.ts, xlab = "Year", ylab = "Units sold in Thousands", main = "Time Series for Minneapoilis")
+
+m.l <- BoxCox.lambda(m.ts)
+
+#Forecasting xreg for model forecasts
+m.perPR <- auto.arima(ts(minn$Per_PR_Units), seasonal = TRUE)
+m.PR.forecast <- forecast(m.perPR, h = 12)
+
+m.perD2 <- auto.arima(ts(minn$Per_D2_Sales), seasonal = TRUE)
+m.D2.forecast <- forecast(m.perD2, h = 12)
+
+m.perD1 <- auto.arima(ts(minn$Per_D1_Sales), seasonal = TRUE)
+m.D1.forecast <- forecast(m.perD1, h = 12)
+
+m.SSAdDollars <- auto.arima(ts(minn$SS_Ad_Dollars), seasonal = TRUE)
+m.SSAdDollars.forecast <- forecast(m.SSAdDollars, h = 12)
+
+#Model
+m_xreg <- cbind(minn$Per_PR_Units,minn$Per_D2_Sales,minn$Per_D1_Sales,minn$SS_Ad_Dollars)
+m.model <- auto.arima(m.ts, seasonal = TRUE, xreg = m_xreg)
+summary(m.model)
+
+#Forecast
+m_xreg_F <- cbind(m.PR.forecast$mean,m.D2.forecast$mean,m.D1.forecast$mean,m.SSAdDollars.forecast$mean)
+m.forecast <- forecast(m.model, h = 12, xreg = m_xreg_F)
+plot(m.forecast,main = "Forecasts with Beer and Ad data - Minn")
+```
+
+Forecasts without Beer and Ad data
+
+```{r}
+minn_wo <- read.csv("Chips_Minn.csv")
+
+minn_wo$start.date <- as.Date(as.character(minn_wo$start.date), format = "%d-%b-%y")
+minn_wo$start.date <- as.POSIXlt(minn_wo$start.date)
+minn_wo$week.num <- strftime(minn_wo$start.date,format="%W")
+
+#Converting data into TS
+m.ts <- ts(minn_wo$dollars.total, start = c(2004,52) ,frequency = 52)
+
+m.l <- BoxCox.lambda(m.ts)
+
+#Forecasting xreg for model forecasts
+m.perPR <- auto.arima(ts(minn_wo$Per_PR_Units), seasonal = TRUE)
+m.PR.forecast <- forecast(m.perPR, h = 12)
+
+m.perD2 <- auto.arima(ts(minn_wo$Per_D2_Sales), seasonal = TRUE)
+m.D2.forecast <- forecast(m.perD2, h = 12)
+
+m.perD1 <- auto.arima(ts(minn_wo$Per_D1_Sales), seasonal = TRUE)
+m.D1.forecast <- forecast(m.perD1, h = 12)
+
+#Model
+m_xreg <- cbind(minn$Per_PR_Units,minn$Per_D2_Sales,minn$Per_D1_Sales)
+m.model <- auto.arima(m.ts, seasonal = TRUE, xreg = m_xreg)
+summary(m.model)
+
+#Forecast
+m_xreg_F <- cbind(m.PR.forecast$mean,m.D2.forecast$mean,m.D1.forecast$mean)
+m.forecast <- forecast(m.model, h = 12, xreg = m_xreg_F)
+plot(m.forecast, main = "Forecasts without Beer and Ad data - Minn")
+```
+
